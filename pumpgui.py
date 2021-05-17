@@ -303,6 +303,8 @@ class GUI(QtWidgets.QMainWindow):
 
         self.canvas.draw()
 
+    def changeunits(self):
+        """make all input units consistent for analysis"""
 
 def PumpTest():
     # read parameters
