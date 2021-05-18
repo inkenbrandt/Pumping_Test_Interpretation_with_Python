@@ -9,10 +9,10 @@
 #
 ###############################################################################
  
-from numpy import *
-from scipy.special import *
-from scipy.spatial.distance import *
-from pandas import *
+import numpy as np
+import scipy.special
+import scipy.spatial.distance
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
  
@@ -32,9 +32,9 @@ class Aquifers(HydraulicUnits):
         HydraulicUnits.__init__(self, K, b)
         self.T = self.K * self.b                # transmissivity
         self.z = z                              # depth midpoint of aquifer
-        self.L = zeros(len(K))                  # aquifer leakance
+        self.L = np.zeros(len(K))                  # aquifer leakance
     def Leakance(self, w):
-        self.L = sqrt(1.0/w)
+        self.L = np.sqrt(1.0/w)
  
 class Aquitards(HydraulicUnits):
     def __init__(self, K, b):
@@ -46,7 +46,7 @@ class Well:
         self.x = x                                  # well location
         self.y = y
         self.Q_tot = Q_tot                          # total injection rate
-        self.screened_list = array(screened_list)   # screened flag
+        self.screened_list = np.array(screened_list)   # screened flag
         self.Q = self.DistributeQ(aquifer)
     def DistributeQ(self,aquifer):
         # distribute Q among aquifers, based on aquifer transmissivity
@@ -55,11 +55,11 @@ class Well:
         return Q
     def HeadChange(self, x, y, k, num_aqf, aquifers, V, Z):
         # head change in layer k resulting from pumping this well
-        r = pdist([[self.x, self.y], [x, y]])[0]
-        sum_term = zeros(num_aqf, float)
-        for j in xrange(num_aqf):
-            sum_term[j] = (V[k, :] * Z[j, :] * k0(r/aquifers.L)).sum()
-        return (self.Q * sum_term/(2.0*pi*aquifers.T)).sum()
+        r = np.pdist([[self.x, self.y], [x, y]])[0]
+        sum_term = np.zeros(num_aqf, float)
+        for j in np.xrange(num_aqf):
+            sum_term[j] = (V[k, :] * Z[j, :] * scipy.special.k0(r/aquifers.L)).sum()
+        return (self.Q * sum_term/(2.0*np.pi*aquifers.T)).sum()
  
 ##################################
 #
@@ -71,13 +71,13 @@ def HemkerMatrix(aquifers, aquitards):
     # construct the Hemker model matrix
     a = 1.0/(aquifers.T * aquitards.c[:-1])
     b = 1.0/(aquifers.T * aquitards.c[1:])
-    A = diag(a+b) + diag(-b[:-1], 1) + diag(-a[1:], -1)
+    A = np.diag(a+b) + np.diag(-b[:-1], 1) + np.diag(-a[1:], -1)
     return A
  
 def Eigen(A):
     # return eigenvalues and eigenvectors of matrix A and its transpose
-    w, V = linalg.eig(A)
-    Z = transpose(linalg.inv(V))
+    w, V = np.linalg.eig(A)
+    Z = np.transpose(np.linalg.inv(V))
     return w, V, Z
  
 ##################################
@@ -92,23 +92,23 @@ def GetLayers(b_aqf, b_aqt):
     z_aqf = section - (b_aqt[:-1].cumsum() + b_aqf.cumsum() - 0.5*b_aqf)
     t_aqf = z_aqf + 0.5*b_aqf               # aquifer top elevation
     t_aqt = t_aqf + b_aqt[:-1]              # aquitard top elevation
-    mixed_top = -concatenate((t_aqt, t_aqf))
-    tops = -sort(mixed_top)
-    tops = append(tops, b_aqt[-1])
+    mixed_top = -np.concatenate((t_aqt, t_aqf))
+    tops = -np.sort(mixed_top)
+    tops = np.append(tops, b_aqt[-1])
     return z_aqf, tops
  
 def Strat(section, num_contacts, K_aqf0, K_aqt0, K_inj, b_inj):
  
     # create strata
-    rand = random.random(num_contacts) * section
-    contact = sort(rand)
+    rand = np.random.random(num_contacts) * section
+    contact = np.sort(rand)
     tops = []                   # top of unit; used later for plotting
     K_aqf = []
     b_aqf = []
     z = []
     K_aqt = []
     b_aqt = []
-    for i in xrange(len(contact)):          # stepping downward with depth
+    for i in np.xrange(len(contact)):          # stepping downward with depth
         if not i:
             # top layer --> aquitard, by definition
             K_aqt.append(K_aqt0)
@@ -142,8 +142,8 @@ def Strat(section, num_contacts, K_aqf0, K_aqt0, K_inj, b_inj):
     tops.append(-b_inj - 0.01)              # to set plot properly
  
     # create hydraulic unit objects
-    aquifers = Aquifers(array(K_aqf), array(b_aqf), array(z))
-    aquitards = Aquitards(array(K_aqt), array(b_aqt))      
+    aquifers = Aquifers(np.array(K_aqf), np.array(b_aqf), np.array(z))
+    aquitards = Aquitards(np.array(K_aqt), np.array(b_aqt))
  
     return aquifers, aquitards, tops
  
@@ -164,12 +164,12 @@ def PlotSection(tops):
 def ProcessVertProfile(x, y, num_aqf, aquifer_layer, aquifers, well, V, Z):
     # draw vertical head change profile
     plt.figure(1)
-    dh = zeros(num_aqf, float)
+    dh = np.zeros(num_aqf, float)
     for layer in aquifer_layer:
         for pump in well:
             dh[layer] = +pump.HeadChange(x, y, layer, num_aqf, aquifers, V, Z)
     vertical = {'layer': aquifer_layer, 'z': aquifers.z, 'b': aquifers.b, 'dh': dh}
-    vertical_df = DataFrame(vertical)
+    vertical_df = pd.DataFrame(vertical)
     vertical_df.to_csv('vertical.csv')
     plt.semilogx(vertical_df['dh'], vertical_df['z'])
     plt.xlabel('Head Change')
@@ -191,20 +191,20 @@ def PlotLayerProfiles(profiles_df, aquifer_layer, x):
  
 def ProcessLayerProfiles(num_aqf, aquifer_layer, aquifers, well, V, Z):
     # process head changes along x-transect; write to file & return data frame
-    x = linspace(100., 5000., 50)       # example transect
+    x = np.linspace(100., 5000., 50)       # example transect
     y = 0.
     for (i, xp) in enumerate(x):
-        dh = zeros(num_aqf, float)
+        dh = np.zeros(num_aqf, float)
         for layer in aquifer_layer:
             for pump in well:
                 dh[layer] = +pump.HeadChange(xp, y, layer, num_aqf, aquifers, V, Z)
-        profiles = {'layer': aquifer_layer, 'x': zeros(num_aqf)+xp,
-            'y': zeros(num_aqf)+y, 'z': aquifers.z, 'b': aquifers.b,
+        profiles = {'layer': aquifer_layer, 'x': np.zeros(num_aqf)+xp,
+            'y': np.zeros(num_aqf)+y, 'z': aquifers.z, 'b': aquifers.b,
             'dh': dh}
-        if not i: profiles_df = DataFrame(profiles)
+        if not i: profiles_df = pd.DataFrame(profiles)
         else:
-            new_profiles_df = DataFrame(profiles)
-            profiles_df = concat([profiles_df, new_profiles_df], axis=0)
+            new_profiles_df = pd.DataFrame(profiles)
+            profiles_df = pd.concat([profiles_df, new_profiles_df], axis=0)
     profiles_df.to_csv('profiles.csv')
     return profiles_df, x
  
@@ -217,11 +217,11 @@ def ProcessLayerProfiles(num_aqf, aquifer_layer, aquifers, well, V, Z):
 def Hemker(mode):
  
     # specifcy aquifer-aquitard structure
-    if mode==0:                 # example strata
-        K_aqf = array([40., 50., 33.333, 40.])
-        b_aqf = array([50., 30., 15., 50.])
-        K_aqt = array([0.01, 0.01, 0.01, 0.01, 0.01])
-        b_aqt = array([10., 15., 10., 40., 200.])
+    if mode == 0:                 # example strata
+        K_aqf = np.array([40., 50., 33.333, 40.])
+        b_aqf = np.array([50., 30., 15., 50.])
+        K_aqt = np.array([0.01, 0.01, 0.01, 0.01, 0.01])
+        b_aqt = np.array([10., 15., 10., 40., 200.])
         z_aqf, tops = GetLayers(b_aqf, b_aqt)
         aquifers = Aquifers(K_aqf, b_aqf, z_aqf)
         aquitards = Aquitards(K_aqt, b_aqt)
@@ -233,31 +233,31 @@ def Hemker(mode):
         K_inj = 0.98
         b_inj = 75.
         aquifers, aquitards, tops = Strat(section, num_contacts,
-            K_aqf0, K_aqt0, K_inj, b_inj)
+                                          K_aqf0, K_aqt0, K_inj, b_inj)
     PlotSection(tops)           # visualize aquifer-aquitard section
  
     # well properties
     num_aqf = len(aquifers.K)
     well = []
     if mode == 0:
-        well.append(Well(0., 0., -10000., array([0, 1, 0, 0]), aquifers))   # example
+        well.append(Well(0., 0., -10000., np.array([0, 1, 0, 0]), aquifers))   # example
     else:
         Qw = 18096.                         # example
-        screen_list = zeros(num_aqf, int)
+        screen_list = np.zeros(num_aqf, int)
         screen_list[-1] = 1
         well.append(Well(0., 0., Qw, screen_list, aquifers))
  
     # set up Hemker matrix
     A = HemkerMatrix(aquifers, aquitards)
-    print 'Set up matrix for Hemker solution.'
+    print('Set up matrix for Hemker solution.')
  
     # solve eigenvalue problem
     w, V, Z = Eigen(A)
     aquifers.Leakance(w)
-    print 'Solved eigenvalue problem.'
+    print('Solved eigenvalue problem.')
  
     # model drawdown
-    aquifer_layer = arange(0, num_aqf, 1)
+    aquifer_layer = np.arange(0, num_aqf, 1)
     if mode == 0:
         profiles_df, x =  ProcessLayerProfiles(num_aqf, aquifer_layer,
             aquifers, well, V, Z)           # create output as a dataframe
@@ -268,7 +268,7 @@ def Hemker(mode):
         y = 0.
         ProcessVertProfile(x, y, num_aqf, aquifer_layer, aquifers, well, V, Z)
  
-    print 'Done.'
+    print('Done.')
  
 ### run script ###
  

@@ -53,8 +53,9 @@ class Aquifer:
 
 class Well:
 
-    def __init__(self, rad, distance=0, distanceunits="m",
-                 radunits="in", pumpdf=None, pumpunits="gpm", obsdf=None, depthunits="ft"):
+    def __init__(self, xcoord, ycoord, rad=6, distanceunits="m",
+                 radunits="in", pumpdf=None, pumpunits="gpm",
+                 obsdf=None, depthunits="ft"):
 
         # well radius; assume radial distance for monitoring drawdown
         self.s = None
@@ -63,9 +64,12 @@ class Well:
         self.Q = None
         self.process_pump(pumpdf, pumpunits)
         self.process_obs(obsdf, depthunits)
-        self.m_conversions = {"in": 0.0254, "ft": 0.3048, "cm": 0.01, "m": 1.0, "km": 1000, "miles": 1609.34}
+        self.m_conversions = {"in": 0.0254, "ft": 0.3048, "cm": 0.01,
+                              "m": 1.0, "km": 1000, "miles": 1609.34}
         self.r = rad * self.m_conversions.get(radunits, 1.0)
-        self.d = distance * self.m_conversions.get(distanceunits, 1.0)
+        self.xd = xcoord * self.m_conversions.get(distanceunits, 1.0)
+        self.yd = ycoord * self.m_conversions.get(distanceunits, 1.0)
+        #self.tArray = np.logspace(np.log10(0.0001), np.log10(10000), num=60, endpoint=True)
 
     def process_obs(self, obsdf, depthunits):
         if obsdf:
@@ -85,102 +89,105 @@ class Well:
             self.Q = pumpdf.Q
         else:
             pass
-        # self.Q = float(lineInput[1][1])     # pumping rate from well (negative value = extraction)
-        # self.tArray = np.logspace(np.log10(t0), np.log10(tEnd), num=60, endpoint=True)     # evaluation times
 
-    def WriteValues(self):
-        # update parameter file with current values
-        output_file = open('well.txt', 'w')
-        output_file.writelines(['r', '\t', str(self.r), '\n'])
-        output_file.writelines(['Q', '\t', str(self.Q), '\n'])
-        output_file.close()
 
 
 class Hantush:  # Hantush and Jacob (1955) solution
 
-    def __init__(self, aquifer, well):
-        self.B = np.sqrt(aquifer.bc * aquifer.K * aquifer.b / aquifer.Kc)
-        self.aquifer = aquifer
-        self.well = well
+    def __init__(self, d, t, Q, T, K, b, Ss, Kc, bc):
+        self.bc = bc
+        self.d = d
+        self.Ss = Ss
+        self.t = t
+        self.K = K
+        self.b = b
+        self.Kc = Kc
+        self.Q = Q
+        self.B = self.calc_B
+        self.drawdown
 
-    def Integrand(self, y):
+    def calc_B(self):
+        return np.sqrt(self.bc * self.K * self.b / self.Kc)
+
+    def integrand(self, y):
         # integral term for the Hantush well function
-        x = np.exp(-y - self.well.r ** 2 / (4. * self.B ** 2 * y)) / y
+        x = np.exp(-y - self.d ** 2 / (4. * self.B ** 2 * y)) / y
         return x
 
     def W(self, u):
         # Hantush well function
-        x = quad(self.Integrand, u, np.inf)[0]
+        x = quad(self.integrand, u, np.inf)[0]
         return x
 
-    def Drawdown(self):
-        s = np.zeros(len(self.well.tArray), float)
-        for i, t in enumerate(self.well.tArray):
-            u = self.well.r ** 2 * self.aquifer.Ss / (4 * self.aquifer.K * t)
-            s[i] = -self.well.Q / (4 * np.pi * self.aquifer.K * self.aquifer.b) * self.W(u)
+    def drawdown(self):
+        u = self.d ** 2 * self.Ss / (4 * self.K * self.t)
+        s = -self.Q / (4 * np.pi * self.K * self.b) * self.W(u)
         return s
 
 
 class ShortStorage:  # Hantush (1960) solution for leaky aquifer with aquitard storage (short-term)
 
-    def __init__(self, aquifer, well):
-        self.beta = np.sqrt(aquifer.Kc * aquifer.Ssc / (aquifer.K * aquifer.Ss)) * 4.0 * well.r / aquifer.b
-        self.aquifer = aquifer
-        self.well = well
+    def __init__(self, d, t, Q, T, K, b, Ss, Kc, Ssc):
+        self.beta = np.sqrt(Kc * Ssc / (K * Ss)) * 4.0 * d / b
+        self.Ss = Ss
+        self.Q = Q
+        self.t = t
+        self.drawdown
 
-    def Integrand(self, y, u):
+    def integrand(self, y, u):
         # integral term for the Hantush well function
         x = scipy.special.erfc(self.beta * np.sqrt(u) / np.sqrt(y * (y - u))) * np.exp(-y) / y
         return x
 
     def H(self, u):
         # Hantush modified well function
-        x = quad(self.Integrand, u, np.inf, args=(u))[0]
+        x = quad(self.integrand, u, np.inf, args=(u))[0]
         return x
 
-    def Drawdown(self):
-        s = np.zeros(len(self.well.tArray), float)
-        for i, t in enumerate(self.well.tArray):
-            u = self.well.r ** 2 * self.aquifer.Ss / (4 * self.aquifer.K * t)
-            s[i] = -self.well.Q / (4 * np.pi * self.aquifer.K * self.aquifer.b) * self.H(u)
+    def drawdown(self):
+        u = self.d ** 2 * self.Ss / (4 * self.K * self.t)
+        s = -self.Q / (4 * np.pi * self.K * self.b) * self.H(u)
         return s
 
 
 class Theis:  # Theis (1935) solution
 
-    def __init__(self, aquifer, well):
-        self.aquifer = aquifer
-        self.well = well
+    def __init__(self, d, t, Q, T, K, b, Ss, Sy, mode=0):
+        self.mode = mode
+        self.Sy = Sy
+        self.Q = Q
+        self.d = d
+        self.Ss = Ss
+        self.K = K
+        self.b = b
+        self.t = t
+        self.drawdown
 
     def W(self, u):
         # Theis well function
         return scipy.special.expn(1, u)
 
-    def Drawdown(self, mode):
-        s = np.zeros(len(self.well.tArray), float)
-        if mode == 0:  # confined aquifer
-            for i, t in enumerate(self.well.tArray):
-                u = self.well.r ** 2 * self.aquifer.Ss / (4 * self.aquifer.K * t)
-                s[i] = -self.well.Q / (4 * np.pi * self.aquifer.K * self.aquifer.b) * self.W(u)
+    def drawdown(self):
+        if self.mode == 0:  # confined aquifer
+            u = self.d ** 2 * self.Ss / (4 * self.K * self.t)
+            s = -self.Q / (4 * np.pi * self.K * self.b) * self.W(u)
         else:  # unconfined aquifer (assuming ~ constant saturated thickness)
-            for i, t in enumerate(self.well.tArray):
-                u = self.well.r ** 2 * self.aquifer.Sy / (4 * self.aquifer.K * self.aquifer.b * t)
-                s[i] = -self.well.Q / (4 * np.pi * self.aquifer.K * self.aquifer.b) * self.W(u)
+            u = self.d ** 2 * self.Sy / (4 * self.K * self.b * self.t)
+            s = -self.Q / (4 * np.pi * self.K * self.b) * self.W(u)
         return s
 
 
 class OldTheis:
     # adapted from: https://github.com/Applied-Groundwater-Modeling-2nd-Ed/Chapter_3_problems-1
-    def __init__(self, aquifer, well):
-        self.aquifer = aquifer
-        self.well = well
+    def __init__(self, d, t, Q, T, K, b, S):
+
 
     def well_function(self, u):
         return scipy.special.exp1(u)
 
     def theis(self, Q, t):
-        u = self.well.r ** 2 * self.aquifer.S / 4. / self.aquifer.T / t
-        s = Q / 4. / np.pi / self.aquifer.T * self.well_function(u)
+        u = self.d ** 2 * self.S / 4. / (self.K * self.b) / self.t
+        s = self.Q / 4. / np.pi / (self.K * self.b) * self.well_function(u)
         return s
 
 
