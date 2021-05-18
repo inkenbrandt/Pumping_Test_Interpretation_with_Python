@@ -5,10 +5,9 @@
 #####################################################################
 
 import numpy as np
-# from numpy import *
+import pandas as pd
 from scipy.integrate import quad
 from scipy.integrate import odeint
-# from scipy.special import *
 import scipy.special
 
 
@@ -91,160 +90,199 @@ class Well:
             pass
 
 
+def Hantush(d, t, Q, T=None, K=None, b=30, Ss=0.001, Kc=0.001, bc=10):
+    """Hantush and Jacob (1955) solution
 
-class Hantush:  # Hantush and Jacob (1955) solution
+    :param d: distance from pumping well (m)
+    :param t: time since pumping started (min)
+    :param Q: pumping rate (m3/min)
+    :param b: aquifer thickness (m); defaults to 30m
+    :param Ss: aquifer Specific Storage (unitless); defaults to 0.001
+    :param T: transmissivity (m2/day); defaults to None
+    :param K: aquifer hydraulic conductivity (m/day); optional; defaults to None
+    :param Kc: confining layer hydraulic conductivity (m/day)
+    :param bc: confining layer thickness (m)
+    :returns drawdown
+    """
+    d = abs(d)
 
-    def __init__(self, d, t, Q, T, K, b, Ss, Kc, bc):
-        self.bc = bc
-        self.d = d
-        self.Ss = Ss
-        self.t = t
-        self.K = K
-        self.b = b
-        self.Kc = Kc
-        self.Q = Q
-        self.B = self.calc_B
-        self.drawdown
+    if t <= 0 or d == 0:
+        s = 0
+    else:
+        if T:
+            K = T/b
+        else:
+            T = K*b
 
-    def calc_B(self):
-        return np.sqrt(self.bc * self.K * self.b / self.Kc)
+        B = np.sqrt(bc * K * b / Kc)
 
-    def integrand(self, y):
+        integrand = lambda y: np.exp(-y - d ** 2 / (4. * B ** 2 * y)) / y
+        W = lambda u: scipy.integrate.quad(integrand, u, np.inf)[0]
+
+        u = d ** 2 * Ss / (4 * K * t)
+        s = -Q / (4 * np.pi * K * b) * W(u)
+    return s
+
+
+def ShortStorage(d, t, Q, T=30., K=1., b=30., Ss=0.001, Kc=1, Ssc=0.001):
+    """Hantush (1960) solution for leaky aquifer with aquitard storage (short-term)
+
+    :param d: distance from pumping well (m)
+    :param t: time since pumping started (min)
+    :param Q: pumping rate (m3/min)
+    :param T: transmissivity (m2/day); defaults to None
+    :param K: aquifer hydraulic conductivity (m/day); optional; defaults to None
+    :param b: aquifer thickness (m); defaults to 30m
+    :param Ss: aquifer Specific Storage (unitless); defaults to 0.001
+    :param Kc: confining layer hydraulic conductivity (m/day)
+    :param Ssc: confining layer specific storage (unitless); defaults to 0.001
+    :returns: drawdown
+    """
+    d = abs(d)
+
+    if t <= 0 or d == 0:
+        s = 0
+    else:
+        if T:
+            K = T / b
+        else:
+            T = K * b
+
+        beta = np.sqrt(Kc * Ssc / (K * Ss)) * 4.0 * d / b
+        u = d ** 2 * Ss / (4 * K * t)
+
         # integral term for the Hantush well function
-        x = np.exp(-y - self.d ** 2 / (4. * self.B ** 2 * y)) / y
-        return x
+        integrand = lambda y, u: scipy.special.erfc(beta * np.sqrt(u) / np.sqrt(y * (y - u))) * np.exp(-y) / y
 
-    def W(self, u):
-        # Hantush well function
-        x = quad(self.integrand, u, np.inf)[0]
-        return x
+        H = lambda u: scipy.integrate.quad(integrand, u, np.inf, args=(u))[0]
 
-    def drawdown(self):
-        u = self.d ** 2 * self.Ss / (4 * self.K * self.t)
-        s = -self.Q / (4 * np.pi * self.K * self.b) * self.W(u)
-        return s
+        s = -Q / (4 * np.pi * K * b) * H(u)
+    return s
 
+def Theis(d, t, Q, T=30., K=1., b=30., Ss=0.001, Sy=0.1, mode=0):
+    """Theis (1935) solution
 
-class ShortStorage:  # Hantush (1960) solution for leaky aquifer with aquitard storage (short-term)
+    :param d: distance from pumping well (m)
+    :param t: time since pumping started (min)
+    :param Q: pumping rate (m3/min)
+    :param T: transmissivity (m2/day); defaults to None
+    :param K: aquifer hydraulic conductivity (m/day); optional; defaults to None
+    :param b: aquifer thickness (m); defaults to 30m
+    :param Ss: aquifer Specific Storage (unitless); defaults to 0.001
+    :param Sy: aquifer specific yield; defaults to 0.1
+    :param mode: confinement state; 0 = confined; 1 = unconfined; defaults to 0
 
-    def __init__(self, d, t, Q, T, K, b, Ss, Kc, Ssc):
-        self.beta = np.sqrt(Kc * Ssc / (K * Ss)) * 4.0 * d / b
-        self.Ss = Ss
-        self.Q = Q
-        self.t = t
-        self.drawdown
+    :returns: drawdown
+    """
+    d = abs(d)
 
-    def integrand(self, y, u):
-        # integral term for the Hantush well function
-        x = scipy.special.erfc(self.beta * np.sqrt(u) / np.sqrt(y * (y - u))) * np.exp(-y) / y
-        return x
+    if t <= 0 or d == 0:
+        s = 0
+    else:
+        if T:
+            K = T/b
+        else:
+            T = K*b
 
-    def H(self, u):
-        # Hantush modified well function
-        x = quad(self.integrand, u, np.inf, args=(u))[0]
-        return x
-
-    def drawdown(self):
-        u = self.d ** 2 * self.Ss / (4 * self.K * self.t)
-        s = -self.Q / (4 * np.pi * self.K * self.b) * self.H(u)
-        return s
-
-
-class Theis:  # Theis (1935) solution
-
-    def __init__(self, d, t, Q, T, K, b, Ss, Sy, mode=0):
-        self.mode = mode
-        self.Sy = Sy
-        self.Q = Q
-        self.d = d
-        self.Ss = Ss
-        self.K = K
-        self.b = b
-        self.t = t
-        self.drawdown
-
-    def W(self, u):
-        # Theis well function
-        return scipy.special.expn(1, u)
-
-    def drawdown(self):
-        if self.mode == 0:  # confined aquifer
-            u = self.d ** 2 * self.Ss / (4 * self.K * self.t)
-            s = -self.Q / (4 * np.pi * self.K * self.b) * self.W(u)
+        if mode == 0:  # confined aquifer
+            u = d ** 2 * Ss / (4 * K * t)
         else:  # unconfined aquifer (assuming ~ constant saturated thickness)
-            u = self.d ** 2 * self.Sy / (4 * self.K * self.b * self.t)
-            s = -self.Q / (4 * np.pi * self.K * self.b) * self.W(u)
-        return s
+            u = d ** 2 * Sy / (4 * K * b * t)
+
+        s = -Q / (4. * np.pi * K * b) * scipy.special.exp1(u)
+    return s
 
 
-class OldTheis:
-    # adapted from: https://github.com/Applied-Groundwater-Modeling-2nd-Ed/Chapter_3_problems-1
-    def __init__(self, d, t, Q, T, K, b, S):
+def variable_q(qdf, d, method, tend=None, **kwargs):
+    if tend:
+        pass
+    else:
+        tend = qdf.last_valid_index() * 2
 
+    qdf = qdf.sort_index()
 
-    def well_function(self, u):
-        return scipy.special.exp1(u)
+    # if there are no flow measurements at 0 minutes add one with a flow of 0
+    if qdf.index[0] != 0:
+        qdf.loc[0, 'flow'] = 0
+        qdf = qdf.sort_index()
 
-    def theis(self, Q, t):
-        u = self.d ** 2 * self.S / 4. / (self.K * self.b) / self.t
-        s = self.Q / 4. / np.pi / (self.K * self.b) * self.well_function(u)
-        return s
+    # get change in flow for each step and make initial change the initial flow instead of None
+    qdf['dQ'] = qdf.flow.diff().fillna(qdf.iloc[0]['flow'])
 
+    # create empty dataframe with regular time steps that spans the defined time range
+    sdf = pd.DataFrame(index=np.arange(0, tend, 1), columns=qdf.index.values)
+
+    # process the drawdown at each time step then shift to pump change time
+    for i in qdf.index:
+        sdf[i] = sdf.apply(lambda x: method(d, x.name, Q=-1 * qdf.loc[i, 'dQ'], **kwargs), 1).shift(i)
+
+    # add all the pumping steps together
+    sdf['all'] = sdf.sum(axis=1)
+    return sdf['all']
 
 class MOL:  # numerical (method-of-lines) solution for an unconfined aquifer
 
-    def __init__(self, aquifer, well):
-        self.aquifer = aquifer
-        self.well = well
+    def __init__(self, d, t, Q, T, K, b, Sy, S):
+        #self.aquifer = aquifer
+        #self.well = well
+        self.d = d
+        self.Q = Q
+        self.S = S
+        self.Sy = Sy
+        self.T = T
+        self.K = K
+        self.b = b
+        self.t = t
         self.N = 70  # default number of radial grid cells
         self.rFace = self.Gridder()  # array of grid cell interface radii
         self.r = 0.5 * self.rFace[1:] + 0.5 * self.rFace[:-1]  # radius of node point associated with each cell
-        self.r = np.insert(self.r, 0, self.well.r)  # cell representing well
+        self.r = np.insert(self.r, 0, self.d)  # cell representing well
         self.A = np.pi * (
                     self.rFace[1:] ** 2 - self.rFace[:-1] ** 2)  # base areas associated with individual grid cells
         self.A = np.insert(self.A, 0, np.pi * self.rFace[0] ** 2)
-        self.Sy = np.zeros(self.N, float) + aquifer.Sy  # assign storage coefficient of 1.0 to wellbore cell
+        self.Sy = np.zeros(self.N, float) + self.Sy  # assign storage coefficient of 1.0 to wellbore cell
         self.Sy = np.insert(self.Sy, 0, 1.0)
-        self.S = np.zeros(self.N, float) + aquifer.S
+        self.S = np.zeros(self.N, float) + self.S
         self.S = np.insert(self.S, 0, 1.0)
+        self.drawdown
 
     def Gridder(self):
         # generate radial grid
-        rb = self.aquifer.b * 100.  # set fixed boundary condition = 10X the available drawdown
+        rb = self.b * 100.  # set fixed boundary condition = 10X the available drawdown
         index = np.arange(0, self.N + 1, 1)
-        f = 10. ** (np.log10((rb / self.well.r)) / self.N)  # sequential scaling factor
-        r = self.well.r * f ** index
+        f = 10. ** (np.log10((rb / self.d)) / self.N)  # sequential scaling factor
+        r = self.d * f ** index
         return r
 
     def Dupuit(self, h, t):
         # ordinary differential equations (volumetric balance for water) for grid cells; variable saturated thickness
-        J = 2. * np.pi * self.aquifer.K * self.rFace[:-1] * (0.5 * h[1:] + 0.5 * h[:-1]) * (h[1:] - h[:-1]) / (
+        J = 2. * np.pi * self.K * self.rFace[:-1] * (0.5 * h[1:] + 0.5 * h[:-1]) * (h[1:] - h[:-1]) / (
                     self.r[1:] - self.r[:-1])
-        J = np.insert(J, 0, -self.well.Q)
-        J = np.append(J, 2. * np.pi * self.aquifer.K * self.rFace[-1] * (0.5 * h[-1] + 0.5 * self.aquifer.b)
-                      * (self.aquifer.b - h[-1]) / (
+        J = np.insert(J, 0, -self.Q)
+        J = np.append(J, 2. * np.pi * self.K * self.rFace[-1] * (0.5 * h[-1] + 0.5 * self.b)
+                      * (self.b - h[-1]) / (
                                   self.rFace[-1] - self.r[-1]))  # append flux from across exterior boundary
         dhdt = (J[1:] - J[:-1]) / (self.A * self.Sy)
         return dhdt
 
     def Theis(self, h, t):
         # ordinary differential equations (volumetric balance for water) for grid cells; fixed saturated thickness
-        J = 2. * np.pi * self.aquifer.K * self.rFace[:-1] * self.aquifer.b * (h[1:] - h[:-1]) / (
+        J = 2. * np.pi * self.K * self.rFace[:-1] * self.b * (h[1:] - h[:-1]) / (
                     self.r[1:] - self.r[:-1])
-        J = np.insert(J, 0, -self.well.Q)  # express pumping as extraction from well
-        J = np.append(J, 2. * np.pi * self.aquifer.K * self.rFace[-1] * self.aquifer.b
-                      * (self.aquifer.b - h[-1]) / (
-                                  self.rFace[-1] - self.r[-1]))  # append flux from across exterior boundary
+        J = np.insert(J, 0, -self.Q)  # express pumping as extraction from well
+        J = np.append(J, 2. * np.pi * self.K * self.rFace[-1] * self.b
+                      * (self.b - h[-1]) / (
+                                  self.rFace[-1] - self.d[-1]))  # append flux from across exterior boundary
         dhdt = (J[1:] - J[:-1]) / (self.A * self.S)
         return dhdt
 
-    def Drawdown(self, mode):
+    def drawdown(self, mode):
         # solve the transient unconfined aquifer test problem using the numerical method-of-lines
-        h = np.zeros(self.N + 1, float) + self.aquifer.b
+        h = np.zeros(self.N + 1, float) + self.b
         if mode == 0:
-            h_t = odeint(self.Dupuit, h, self.well.tArray)
+            h_t = odeint(self.Dupuit, h, self.t)
         else:
-            h_t = odeint(self.Theis, h, self.well.tArray)
+            h_t = odeint(self.Theis, h, self.t)
         h_t = np.transpose(h_t)
-        s = self.aquifer.b - h_t[0]  # drawdown vector for cell representing well bore
+        s = self.b - h_t[0]  # drawdown vector for cell representing well bore
         return s
